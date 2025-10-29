@@ -1,4 +1,4 @@
-from starter import parse_bif
+from startup_code import parse_bif
 
 def check_probabilities(bif_data):
     complete, missing = 0, 0
