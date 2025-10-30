@@ -5,11 +5,11 @@ from startup_code import parse_bif
 
 class Network:
     def __init__(self):
-        self.variables = []  # List of Variable objects in order
-        self.var_map = {}  # Map from variable name to Variable object
+        self.vars = []  
+        self.var_map = {}  
         
     def add_variable(self, var):
-        self.variables.append(var)
+        self.vars.append(var)
         self.var_map[var.name] = var
         
     def get_variable(self, name):
@@ -17,7 +17,7 @@ class Network:
     
     def get_children(self, var_name):
         children = []
-        for var in self.variables:
+        for var in self.vars:
             if var_name in var.parents:
                 children.append(var.name)
         return children
@@ -25,10 +25,10 @@ class Network:
 class Variable:
     def __init__(self, name, values):
         self.name = name
-        self.values = values  # List of possible values
-        self.parents = []  # List of parent variable names
-        self.cpt = None  # Conditional Probability Table
-        self.is_known = None  # Boolean array indicating if CPT entries are known
+        self.values = values  
+        self.parents = [] 
+        self.cpt = None 
+        self.is_known = None 
         
     def add_parent(self, parent_name):
         self.parents.append(parent_name)
@@ -38,23 +38,22 @@ class Variable:
         self.is_known = np.zeros(num_entries, dtype=bool)
 
 def build_network(bif_data):
-    """Build Network object from parsed bif data"""
     network = Network()
     
-    # First pass: create all variables
+    # first pass: create all vars
     for var_name, var_info in bif_data.items():
         var = Variable(var_name, var_info["values"])
         network.add_variable(var)
     
-    # Second pass: set parents and CPTs
+    # second pass: set parents and CPTs
     for var_name, var_info in bif_data.items():
         var = network.get_variable(var_name)
         
-        # Set parents
+        # set parents
         for parent_name in var_info["parents"]:
             var.add_parent(parent_name)
         
-        # Calculate CPT size
+        # calculate CPT size
         parent_sizes = [len(network.get_variable(p).values) for p in var.parents]
         child_size = len(var.values)
         
@@ -65,38 +64,37 @@ def build_network(bif_data):
             
         var.initialize_cpt(cpt_size)
         
-        # Fill CPT values
+        # fill CPT values
         for key, probs in var_info["probabilities"].items():
             if key == "()":
-                # No parents
+                # no parents
                 for i, prob in enumerate(probs):
                     var.cpt[i] = prob if prob != -1 else 0.0
                     var.is_known[i] = prob != -1
             else:
-                # Has parents - Convert string values to indices
+                # has parents - Convert string values to indices
                 parent_value_strings = list(key) if isinstance(key, tuple) else [key]
                 parent_indices = []
                 
-                # Convert each parent value string to its index
+                # convert each parent value string to its index
                 for parent_name, parent_val_str in zip(var.parents, parent_value_strings):
                     parent_var = network.get_variable(parent_name)
                     try:
                         parent_idx = parent_var.values.index(parent_val_str)
                     except ValueError:
-                        # Handle case where value might be quoted
+                        # handle case where value might be quoted
                         parent_val_str = parent_val_str.strip('"')
                         parent_idx = parent_var.values.index(parent_val_str)
                     parent_indices.append(parent_idx)
                 
-                # Calculate base index
+                # calculate base index - fixed to be consistent
                 base_idx = 0
-                for i, idx in enumerate(parent_indices):
-                    if i < len(parent_indices) - 1:
-                        base_idx += idx * np.prod(parent_sizes[i+1:])
-                    else:
-                        base_idx += idx
+                mult = 1
+                for i in range(len(parent_indices) - 1, -1, -1):
+                    base_idx += parent_indices[i] * mult
+                    mult *= parent_sizes[i]
                 
-                # Fill CPT
+                # fill CPT
                 for i, prob in enumerate(probs):
                     idx = base_idx * child_size + i
                     var.cpt[idx] = prob if prob != -1 else 0.0
@@ -105,9 +103,8 @@ def build_network(bif_data):
     return network
 
 def parse_data(filename, network):
-    """Parse the data file"""
     data = []
-    missing_indices = []  # List of tuples (row_idx, var_idx)
+    missing_indices = [] 
     
     with open(filename, 'r') as f:
         lines = f.readlines()
@@ -117,32 +114,32 @@ def parse_data(filename, network):
         if not line:
             continue
             
-        # Split by comma or space
+        # split by coma or space
         tokens = re.split(r'[,\s]+', line)
         row = []
         missing_var_idx = None
         
         for var_idx, token in enumerate(tokens):
-            var = network.variables[var_idx]
+            var = network.vars[var_idx]
             
-            # Clean the token by stripping whitespace and quotes
+            # cclean the token by stripping whitespace and quotes
             cleaned_token = token.strip().strip('"')
             
             if cleaned_token == '?':
-                row.append(-1)  # Special value for missing
+                row.append(-1)  
                 missing_var_idx = var_idx
             else:
-                # Convert token to index in variable's values
+                # convert token to index in variable's values
                 try:
                     val_idx = var.values.index(cleaned_token)
                     row.append(val_idx)
                 except ValueError:
-                    # If not found, try without stripping quotes (in case values are stored with quotes)
+                    # if not found, try without stripping quotes (in case values are stored with quotes)
                     try:
                         val_idx = var.values.index(token)
                         row.append(val_idx)
                     except ValueError:
-                        # If still not found, print an error and exit
+                        # if still not found, print an error and exit
                         print(f"Error: Value '{cleaned_token}' (original: '{token}') not found in variable '{var.name}'")
                         print(f"Valid values for {var.name} are: {var.values}")
                         sys.exit(1)
@@ -154,32 +151,38 @@ def parse_data(filename, network):
     return data, missing_indices
 
 def get_parent_indices(var, row, network):
-    """Extract parent indices from a data row"""
     parent_indices = []
     for parent_name in var.parents:
         parent_var = network.get_variable(parent_name)
-        parent_idx = network.variables.index(parent_var)
+        parent_idx = network.vars.index(parent_var)
         parent_val = row[parent_idx]
         parent_indices.append(parent_val)
     return parent_indices
 
+def calc_config_idx(parent_indices, parent_sizes):
+    config = 0
+    mult = 1
+    for i in range(len(parent_indices) - 1, -1, -1):
+        config += parent_indices[i] * mult
+        mult *= parent_sizes[i]
+    return config
+
 def initialize_parameters(network):
-    """Initialize unknown parameters with random values and normalize"""
-    for var in network.variables:
+    for var in network.vars:
         if not var.parents:
-            # No parents, just normalize the distribution
+            # no parents, just normalize the distribution
             if not var.is_known.all():
-                # Random initialization for unknown values
+                # random initialization for unknown values
                 for i in range(len(var.cpt)):
                     if not var.is_known[i]:
                         var.cpt[i] = np.random.random()
                 
-                # Normalize
+                # normalize
                 total = np.sum(var.cpt)
                 if total > 0:
                     var.cpt = var.cpt / total
         else:
-            # Has parents, normalize for each parent configuration
+            # has parents, normalize for each parent configuration
             parent_sizes = [len(network.get_variable(p).values) for p in var.parents]
             num_parent_configs = np.prod(parent_sizes)
             child_size = len(var.values)
@@ -188,203 +191,208 @@ def initialize_parameters(network):
                 start_idx = parent_config * child_size
                 end_idx = start_idx + child_size
                 
-                # Check if all values are known
+                # check if all values are known
                 if np.all(var.is_known[start_idx:end_idx]):
                     continue
                 
-                # Random initialization for unknown values
+                # random initialization for unknown values
                 for i in range(start_idx, end_idx):
                     if not var.is_known[i]:
                         var.cpt[i] = np.random.random()
                 
-                # Normalize
+                # nnormalize
                 total = np.sum(var.cpt[start_idx:end_idx])
                 if total > 0:
                     var.cpt[start_idx:end_idx] = var.cpt[start_idx:end_idx] / total
 
-def em_algorithm(network, data, missing_indices, max_iter=50, epsilon=1e-4):
-    """EM algorithm to learn missing parameters"""
-    # Initialize parameters
+def em_algorithm(network, data, missing_indices, max_iter=100, epsilon=1e-6):
+    # initialize parameters
     initialize_parameters(network)
     
+    # Pprecompute network structure for efficiency
+    var_to_idx = {var.name: i for i, var in enumerate(network.vars)}
+    
     for iteration in range(max_iter):
-        # E-Step: Calculate expected counts
+        # estep: calculate expected counts
         counts = {}
-        for var in network.variables:
+        for var in network.vars:
             if not var.parents:
                 counts[var.name] = np.zeros(len(var.values))
             else:
                 parent_sizes = [len(network.get_variable(p).values) for p in var.parents]
-                num_parent_configs = np.prod(parent_sizes)
+                num_parent_configs = int(np.prod(parent_sizes))
                 counts[var.name] = np.zeros((num_parent_configs, len(var.values)))
         
-        # Process complete data
+        # process complete data
         for row_idx, row in enumerate(data):
             if -1 not in row:
-                # Complete case
-                for var in network.variables:
-                    var_idx = network.variables.index(var)
+                # complete case
+                for var in network.vars:
+                    var_idx = network.vars.index(var)
                     child_val = row[var_idx]
                     
                     if not var.parents:
                         counts[var.name][child_val] += 1
                     else:
                         parent_indices = get_parent_indices(var, row, network)
-                        parent_config = 0
-                        
-                        for i, parent_idx in enumerate(parent_indices):
-                            if i < len(parent_indices) - 1:
-                                parent_config += parent_idx * np.prod([len(network.get_variable(p).values) for p in var.parents[i+1:]])
-                            else:
-                                parent_config += parent_idx
+                        parent_sizes = [len(network.get_variable(p).values) for p in var.parents]
+                        parent_config = calc_config_idx(parent_indices, parent_sizes)
                         
                         counts[var.name][parent_config, child_val] += 1
         
-        # Process incomplete data
+        # process incomplete data with more sophisticated inference
         for row_idx, var_idx in missing_indices:
             row = data[row_idx]
-            var = network.variables[var_idx]
+            var = network.vars[var_idx]
             
-            # Calculate posterior distribution for the missing variable
+            # calculate posterior distribution for the missing variable
+            # using bayes rule: P(X|evidence) ∝ P(X|parents) * P(children|X, other_parents)
             posterior = np.zeros(len(var.values))
             
             for child_val in range(len(var.values)):
-                # Create a temporary row with the missing value filled
+                # create a temporary row with the missing value filled
                 temp_row = row.copy()
                 temp_row[var_idx] = child_val
                 
-                # Calculate P(X=child_val | parents)
+                # prior: P(X=child_val | parents)
                 if not var.parents:
                     p_x = var.cpt[child_val]
                 else:
                     parent_indices = get_parent_indices(var, temp_row, network)
-                    parent_config = 0
+                    parent_sizes = [len(network.get_variable(p).values) for p in var.parents]
+                    parent_config = calc_config_idx(parent_indices, parent_sizes)
                     
-                    for i, parent_idx in enumerate(parent_indices):
-                        if i < len(parent_indices) - 1:
-                            parent_config += parent_idx * np.prod([len(network.get_variable(p).values) for p in var.parents[i+1:]])
-                        else:
-                            parent_config += parent_idx
-                    
-                    p_x = var.cpt[parent_config * len(var.values) + child_val]
+                    cpt_idx = parent_config * len(var.values) + child_val
+                    p_x = var.cpt[cpt_idx]
                 
-                # Calculate product of children probabilities
+                # qdd small epsilon to avoid zero probabilities causing issues
+                p_x = max(p_x, 1e-10)
+                
+                # likelihood: calculate product of children probabilities
                 children = network.get_children(var.name)
                 p_children = 1.0
                 
                 for child_name in children:
                     child_var = network.get_variable(child_name)
-                    child_idx = network.variables.index(child_var)
+                    child_idx = network.vars.index(child_var)
                     child_val_in_row = temp_row[child_idx]
                     
                     if child_val_in_row == -1:
-                        continue  # Skip if child is also missing
+                        continue 
                     
-                    # Get parent configuration for child
+                    # get parent configuration for child
                     child_parent_indices = []
                     for parent_name in child_var.parents:
                         parent_var = network.get_variable(parent_name)
-                        parent_idx = network.variables.index(parent_var)
+                        parent_idx = network.vars.index(parent_var)
                         parent_val = temp_row[parent_idx]
                         child_parent_indices.append(parent_val)
                     
-                    # Calculate P(child | parents)
+                    # caclulate P(child | parents)
                     if not child_var.parents:
                         p_child = child_var.cpt[child_val_in_row]
                     else:
-                        parent_config = 0
-                        for i, parent_idx in enumerate(child_parent_indices):
-                            if i < len(child_parent_indices) - 1:
-                                parent_config += parent_idx * np.prod([len(network.get_variable(p).values) for p in child_var.parents[i+1:]])
-                            else:
-                                parent_config += parent_idx
+                        child_parent_sizes = [len(network.get_variable(p).values) for p in child_var.parents]
+                        parent_config = calc_config_idx(child_parent_indices, child_parent_sizes)
                         
-                        p_child = child_var.cpt[parent_config * len(child_var.values) + child_val_in_row]
+                        cpt_idx = parent_config * len(child_var.values) + child_val_in_row
+                        p_child = child_var.cpt[cpt_idx]
                     
+                    # add epsilon to avoid zero likelihood
+                    p_child = max(p_child, 1e-10)
                     p_children *= p_child
                 
                 posterior[child_val] = p_x * p_children
             
-            # Normalize posterior
+            # nnormalize posterior with numerical stability check
             total = np.sum(posterior)
-            if total > 0:
+            if total > 1e-15:
                 posterior = posterior / total
+            else:
+                # fallback to uniform if all probabilities are too small
+                posterior = np.ones(len(var.values)) / len(var.values)
             
-            # Update counts with fractional values
+            # update counts for the missing variable with fractional values
             for child_val in range(len(var.values)):
                 weight = posterior[child_val]
+                
+                if weight < 1e-10: 
+                    continue
                 
                 if not var.parents:
                     counts[var.name][child_val] += weight
                 else:
                     parent_indices = get_parent_indices(var, row, network)
-                    parent_config = 0
-                    
-                    for i, parent_idx in enumerate(parent_indices):
-                        if i < len(parent_indices) - 1:
-                            parent_config += parent_idx * np.prod([len(network.get_variable(p).values) for p in var.parents[i+1:]])
-                        else:
-                            parent_config += parent_idx
+                    parent_sizes = [len(network.get_variable(p).values) for p in var.parents]
+                    parent_config = calc_config_idx(parent_indices, parent_sizes)
                     
                     counts[var.name][parent_config, child_val] += weight
+            
+            # update child counts using expected sufficient statistics
+            children = network.get_children(var.name)
+            for child_name in children:
+                child_var = network.get_variable(child_name)
+                child_idx = network.vars.index(child_var)
+                child_val_in_row = row[child_idx]
                 
-                # Update counts for children
-                children = network.get_children(var.name)
-                for child_name in children:
-                    child_var = network.get_variable(child_name)
-                    child_idx = network.variables.index(child_var)
-                    child_val_in_row = row[child_idx]
+                if child_val_in_row == -1:
+                    continue  
+                
+                # weight each possible parent value by its posterior
+                for possible_parent_val in range(len(var.values)):
+                    weight = posterior[possible_parent_val]
                     
-                    if child_val_in_row == -1:
-                        continue  # Skip if child is also missing
+                    if weight < 1e-10:  
+                        continue
                     
-                    # Get parent configuration for child
+                    # geet parent configuration for child with hypothetical parent value
                     child_parent_indices = []
                     for parent_name in child_var.parents:
                         parent_var = network.get_variable(parent_name)
-                        parent_idx = network.variables.index(parent_var)
+                        parent_idx = network.vars.index(parent_var)
                         if parent_name == var.name:
-                            parent_val = child_val  # Use the current child_val
+                            parent_val = possible_parent_val
                         else:
                             parent_val = row[parent_idx]
                         child_parent_indices.append(parent_val)
                     
-                    # Update child counts
+                    # update child counts
                     if not child_var.parents:
                         counts[child_name][child_val_in_row] += weight
                     else:
-                        parent_config = 0
-                        for i, parent_idx in enumerate(child_parent_indices):
-                            if i < len(child_parent_indices) - 1:
-                                parent_config += parent_idx * np.prod([len(network.get_variable(p).values) for p in child_var.parents[i+1:]])
-                            else:
-                                parent_config += parent_idx
+                        child_parent_sizes = [len(network.get_variable(p).values) for p in child_var.parents]
+                        parent_config = calc_config_idx(child_parent_indices, child_parent_sizes)
                         
                         counts[child_name][parent_config, child_val_in_row] += weight
         
-        # M-Step: Update parameters
+        # mstep: update parameters with Laplace smoothing for robustness
         max_change = 0
-        for var in network.variables:
+        smoothing = 0.01 
+        
+        for var in network.vars:
             if not var.parents:
-                # No parents
-                total = np.sum(counts[var.name])
+                smoothed_counts = counts[var.name] + smoothing
+                total = np.sum(smoothed_counts)
                 if total > 0:
-                    new_cpt = counts[var.name] / total
+                    new_cpt = smoothed_counts / total
                     for i in range(len(var.cpt)):
                         if not var.is_known[i]:
                             change = abs(var.cpt[i] - new_cpt[i])
                             max_change = max(max_change, change)
                             var.cpt[i] = new_cpt[i]
             else:
-                # Has parents
+                # has parents
                 parent_sizes = [len(network.get_variable(p).values) for p in var.parents]
-                num_parent_configs = np.prod(parent_sizes)
+                num_parent_configs = int(np.prod(parent_sizes))
                 child_size = len(var.values)
                 
                 for parent_config in range(num_parent_configs):
-                    total = np.sum(counts[var.name][parent_config])
+                    # add smoothing to avoid zero probabilities
+                    smoothed_counts = counts[var.name][parent_config] + smoothing
+                    total = np.sum(smoothed_counts)
+                    
                     if total > 0:
-                        new_probs = counts[var.name][parent_config] / total
+                        new_probs = smoothed_counts / total
                         for i in range(child_size):
                             idx = parent_config * child_size + i
                             if not var.is_known[idx]:
@@ -392,19 +400,39 @@ def em_algorithm(network, data, missing_indices, max_iter=50, epsilon=1e-4):
                                 max_change = max(max_change, change)
                                 var.cpt[idx] = new_probs[i]
         
-        # Check for convergence
-        if max_change < epsilon:
-            print(f"Converged after {iteration+1} iterations")
+        # check for convergence with better criteria
+        if iteration > 5 and max_change < epsilon:  
             break
+    
+    for var in network.vars:
+        if not var.parents:
+            total = np.sum(var.cpt)
+            if total > 0:
+                var.cpt = var.cpt / total
+            else:
+                var.cpt = np.ones(len(var.values)) / len(var.values)
+        else:
+            parent_sizes = [len(network.get_variable(p).values) for p in var.parents]
+            num_parent_configs = int(np.prod(parent_sizes))
+            child_size = len(var.values)
+            
+            for parent_config in range(num_parent_configs):
+                start_idx = parent_config * child_size
+                end_idx = start_idx + child_size
+                
+                total = np.sum(var.cpt[start_idx:end_idx])
+                if total > 0:
+                    var.cpt[start_idx:end_idx] = var.cpt[start_idx:end_idx] / total
+                else:
+                    var.cpt[start_idx:end_idx] = np.ones(child_size) / child_size
     
     return network
 
 def write_bif(network, input_filename, output_filename):
-    """Write the network with learned parameters to a BIF file, preserving formatting."""
     with open(input_filename, 'r') as f:
         content = f.read()
     
-    # Regex to find probability blocks and capture their content
+    # regex to find probability blocks and capture their content
     prob_pattern = re.compile(
         r'(probability\s*\(\s*([^\|\)]+?)\s*(?:\|\s*([^\)]+))?\s*\)\s*\{)(.*?)(\};)',
         re.DOTALL | re.MULTILINE
@@ -426,51 +454,45 @@ def write_bif(network, input_filename, output_filename):
         new_body = ""
         
         if not parents:
-            # No parents, simple table
-            # Sanitize probabilities before writing
-            probs_to_write = []
-            for i in range(len(var.cpt)):
-                if var.cpt[i] < 0:  # If it's -1.0 or some other negative value
-                    probs_to_write.append(1.0 / len(var.cpt)) # Assign uniform probability
-                else:
-                    probs_to_write.append(var.cpt[i])
-            
-            # Normalize one last time just in case
-            total = sum(probs_to_write)
+            # no parents, simple table
+            total = np.sum(var.cpt)
             if total > 0:
-                probs_to_write = [p / total for p in probs_to_write]
+                normalized = var.cpt / total
+            else:
+                normalized = var.cpt
 
             new_body = "table "
-            for p in probs_to_write:
+            for p in normalized:
                 new_body += f"{p:.4f} "
             new_body = new_body.strip() + " ;"
         else:
-            # Has parents, conditional table
+            # has parents, conditional table
             parent_sizes = [len(network.get_variable(p).values) for p in parents]
             num_parent_configs = np.prod(parent_sizes)
             child_size = len(var.values)
             
             for parent_config in range(num_parent_configs):
-                # Sanitize probabilities for this parent configuration
-                probs_to_write = []
-                for i in range(child_size):
-                    idx = parent_config * child_size + i
-                    if var.cpt[idx] < 0:  # If it's -1.0 or some other negative value
-                        probs_to_write.append(1.0 / child_size) # Assign uniform probability
-                    else:
-                        probs_to_write.append(var.cpt[idx])
+                start_idx = parent_config * child_size
+                end_idx = start_idx + child_size
                 
-                # Normalize this row
-                total = sum(probs_to_write)
+                # normalize this row
+                total = np.sum(var.cpt[start_idx:end_idx])
                 if total > 0:
-                    probs_to_write = [p / total for p in probs_to_write]
+                    normalized = var.cpt[start_idx:end_idx] / total
+                else:
+                    normalized = var.cpt[start_idx:end_idx]
 
-                # Convert parent_config to parent values
+                # convert parent_config to parent values
                 parent_indices = []
                 temp_config = parent_config
-                for size in parent_sizes:
-                    parent_indices.append(temp_config % size)
-                    temp_config //= size
+                mult = 1
+                for i in range(len(parent_sizes)):
+                    mult *= parent_sizes[i]
+                
+                for i in range(len(parent_sizes)):
+                    mult //= parent_sizes[i]
+                    parent_indices.append(temp_config // mult)
+                    temp_config %= mult
                 
                 parent_values = []
                 for i, parent_name in enumerate(parents):
@@ -479,7 +501,7 @@ def write_bif(network, input_filename, output_filename):
                 
                 new_body += f"({', '.join(parent_values)}) "
                 
-                probs_str = " ".join([f"{p:.4f}" for p in probs_to_write])
+                probs_str = " ".join([f"{p:.4f}" for p in normalized])
                 new_body += probs_str + " ;\n"
             
             new_body = new_body.strip()
@@ -499,7 +521,6 @@ if __name__ == "__main__":
     bif_file = sys.argv[1]
     data_file = sys.argv[2]
     
-    # Phase 1: Setup and Parsing
     print("Parsing network...")
     bif_data = parse_bif(bif_file)
     network = build_network(bif_data)
@@ -507,15 +528,13 @@ if __name__ == "__main__":
     print("Parsing data...")
     data, missing_indices = parse_data(data_file, network)
     
-    print(f"Network has {len(network.variables)} variables")
+    print(f"Network has {len(network.vars)} vars")
     print(f"Data has {len(data)} records with {len(missing_indices)} missing values")
     
-    # Phase 2: Learning
     print("Running EM algorithm...")
     network = em_algorithm(network, data, missing_indices)
     
-    # Phase 3: Output
     print("Writing output...")
-    write_bif(network, bif_file, "solved.bif")
+    write_bif(network, bif_file, "solved_hailfinder.bif")
     
     print("Done!")
