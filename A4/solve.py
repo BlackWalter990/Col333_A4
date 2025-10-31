@@ -516,6 +516,6 @@ if __name__ == "__main__":
     
     # Phase 3: Output
     print("Writing output...")
-    write_bif(network, bif_file, "solved.bif")
+    write_bif(network, bif_file, "solved_hailfinder.bif")
     
     print("Done!")
