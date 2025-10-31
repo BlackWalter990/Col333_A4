@@ -427,43 +427,51 @@ def write_bif(network, input_filename, output_filename):
         
         if not parents:
             # No parents, simple table
-            # Sanitize probabilities before writing
-            probs_to_write = []
-            for i in range(len(var.cpt)):
-                if var.cpt[i] < 0:  # If it's -1.0 or some other negative value
-                    probs_to_write.append(1.0 / len(var.cpt)) # Assign uniform probability
-                else:
-                    probs_to_write.append(var.cpt[i])
-            
-            # Normalize one last time just in case
+            probs_to_write = var.cpt.tolist()
+
+            # Normalize just in case
             total = sum(probs_to_write)
             if total > 0:
                 probs_to_write = [p / total for p in probs_to_write]
+            else:
+                probs_to_write = [1.0 / len(probs_to_write)] * len(probs_to_write)
 
-            new_body = "table "
-            for p in probs_to_write:
-                new_body += f"{p:.4f} "
-            new_body = new_body.strip() + " ;"
+            rounded_probs = [round(p, 4) for p in probs_to_write]
+            sum_rounded = sum(rounded_probs)
+            if sum_rounded != 1.0:
+                delta = 1.0 - sum_rounded
+                # Add delta to the largest probability
+                max_prob_index = rounded_probs.index(max(rounded_probs))
+                rounded_probs[max_prob_index] += delta
+
+            new_body = " table " + " ".join([f"{p:.4f}" for p in rounded_probs]) + ";"
         else:
             # Has parents, conditional table
             parent_sizes = [len(network.get_variable(p).values) for p in parents]
             num_parent_configs = np.prod(parent_sizes)
             child_size = len(var.values)
             
+            new_body_lines = []
             for parent_config in range(num_parent_configs):
-                # Sanitize probabilities for this parent configuration
-                probs_to_write = []
-                for i in range(child_size):
-                    idx = parent_config * child_size + i
-                    if var.cpt[idx] < 0:  # If it's -1.0 or some other negative value
-                        probs_to_write.append(1.0 / child_size) # Assign uniform probability
-                    else:
-                        probs_to_write.append(var.cpt[idx])
+                start_idx = parent_config * child_size
+                end_idx = start_idx + child_size
                 
+                probs_to_write = var.cpt[start_idx:end_idx].tolist()
+
                 # Normalize this row
                 total = sum(probs_to_write)
                 if total > 0:
                     probs_to_write = [p / total for p in probs_to_write]
+                else:
+                    probs_to_write = [1.0 / len(probs_to_write)] * len(probs_to_write)
+
+                rounded_probs = [round(p, 4) for p in probs_to_write]
+                sum_rounded = sum(rounded_probs)
+                if sum_rounded != 1.0:
+                    delta = 1.0 - sum_rounded
+                    # Add delta to the largest probability
+                    max_prob_index = rounded_probs.index(max(rounded_probs))
+                    rounded_probs[max_prob_index] += delta
 
                 # Convert parent_config to parent values
                 parent_indices = []
@@ -475,16 +483,17 @@ def write_bif(network, input_filename, output_filename):
                 parent_values = []
                 for i, parent_name in enumerate(parents):
                     parent_var = network.get_variable(parent_name)
-                    parent_values.append(f'"{parent_var.values[parent_indices[i]]}"')
+                    parent_values.append(f'\'{parent_var.values[parent_indices[i]]}\'')
                 
-                new_body += f"({', '.join(parent_values)}) "
+                line = f"  ({', '.join(parent_values)}) "
                 
-                probs_str = " ".join([f"{p:.4f}" for p in probs_to_write])
-                new_body += probs_str + " ;\n"
+                probs_str = " ".join([f"{p:.4f}" for p in rounded_probs])
+                line += probs_str + " ;"
+                new_body_lines.append(line)
             
-            new_body = new_body.strip()
+            new_body = "\n".join(new_body_lines)
         
-        return f"{opening}{new_body}{closing}"
+        return f"{opening}\n{new_body}\n{match.group(5)}"
     
     new_content = prob_pattern.sub(replace_prob_table, content)
     
