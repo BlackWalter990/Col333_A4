@@ -19,7 +19,7 @@ def check_probabilities(bif_data):
 
 def check_format_and_error():
     base = parse_bif("hailfinder.bif")
-    solved = parse_bif("solved_hailfinder.bif")
+    solved = parse_bif("solved.bif")
     gold = parse_bif("gold_hailfinder.bif")
 
     print("\nChecking probability consistency...")

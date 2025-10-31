@@ -29,8 +29,8 @@ echo "Running EM algorithm to learn Bayesian Network parameters..."
 python3 solve.py "$BIF_FILE" "$DATA_FILE"
 
 # Check if output file was created
-if [ -f "solved_hailfinder.bif" ]; then
-    echo "Learning completed successfully. Output saved to solved_hailfinder.bif"
+if [ -f "solved.bif" ]; then
+    echo "Learning completed successfully. Output saved to solved.bif"
 else
     echo "Error: Failed to generate output file."
     exit 1
