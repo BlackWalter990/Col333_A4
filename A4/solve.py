@@ -202,6 +202,22 @@ def initialize_parameters(network):
                 if total > 0:
                     var.cpt[start_idx:end_idx] = var.cpt[start_idx:end_idx] / total
 
+def _get_parent_config_index(var, parent_indices, network):
+    """Calculates the flattened index for a given configuration of parent values."""
+    if not var.parents:
+        return 0
+    
+    parent_config = 0
+    parent_sizes = [len(network.get_variable(p).values) for p in var.parents]
+    
+    for i, p_idx in enumerate(parent_indices):
+        multiplier = 1
+        if i < len(parent_indices) - 1:
+            multiplier = np.prod(parent_sizes[i+1:])
+        parent_config += p_idx * multiplier
+        
+    return parent_config
+
 def em_algorithm(network, data, missing_indices, max_iter=50, epsilon=1e-4):
     """EM algorithm to learn missing parameters"""
     # Initialize parameters
@@ -230,14 +246,7 @@ def em_algorithm(network, data, missing_indices, max_iter=50, epsilon=1e-4):
                         counts[var.name][child_val] += 1
                     else:
                         parent_indices = get_parent_indices(var, row, network)
-                        parent_config = 0
-                        
-                        for i, parent_idx in enumerate(parent_indices):
-                            if i < len(parent_indices) - 1:
-                                parent_config += parent_idx * np.prod([len(network.get_variable(p).values) for p in var.parents[i+1:]])
-                            else:
-                                parent_config += parent_idx
-                        
+                        parent_config = _get_parent_config_index(var, parent_indices, network)
                         counts[var.name][parent_config, child_val] += 1
         
         # Process incomplete data
@@ -258,14 +267,7 @@ def em_algorithm(network, data, missing_indices, max_iter=50, epsilon=1e-4):
                     p_x = var.cpt[child_val]
                 else:
                     parent_indices = get_parent_indices(var, temp_row, network)
-                    parent_config = 0
-                    
-                    for i, parent_idx in enumerate(parent_indices):
-                        if i < len(parent_indices) - 1:
-                            parent_config += parent_idx * np.prod([len(network.get_variable(p).values) for p in var.parents[i+1:]])
-                        else:
-                            parent_config += parent_idx
-                    
+                    parent_config = _get_parent_config_index(var, parent_indices, network)
                     p_x = var.cpt[parent_config * len(var.values) + child_val]
                 
                 # Calculate product of children probabilities
@@ -292,13 +294,7 @@ def em_algorithm(network, data, missing_indices, max_iter=50, epsilon=1e-4):
                     if not child_var.parents:
                         p_child = child_var.cpt[child_val_in_row]
                     else:
-                        parent_config = 0
-                        for i, parent_idx in enumerate(child_parent_indices):
-                            if i < len(child_parent_indices) - 1:
-                                parent_config += parent_idx * np.prod([len(network.get_variable(p).values) for p in child_var.parents[i+1:]])
-                            else:
-                                parent_config += parent_idx
-                        
+                        parent_config = _get_parent_config_index(child_var, child_parent_indices, network)
                         p_child = child_var.cpt[parent_config * len(child_var.values) + child_val_in_row]
                     
                     p_children *= p_child
@@ -318,14 +314,7 @@ def em_algorithm(network, data, missing_indices, max_iter=50, epsilon=1e-4):
                     counts[var.name][child_val] += weight
                 else:
                     parent_indices = get_parent_indices(var, row, network)
-                    parent_config = 0
-                    
-                    for i, parent_idx in enumerate(parent_indices):
-                        if i < len(parent_indices) - 1:
-                            parent_config += parent_idx * np.prod([len(network.get_variable(p).values) for p in var.parents[i+1:]])
-                        else:
-                            parent_config += parent_idx
-                    
+                    parent_config = _get_parent_config_index(var, parent_indices, network)
                     counts[var.name][parent_config, child_val] += weight
                 
                 # Update counts for children
@@ -353,13 +342,7 @@ def em_algorithm(network, data, missing_indices, max_iter=50, epsilon=1e-4):
                     if not child_var.parents:
                         counts[child_name][child_val_in_row] += weight
                     else:
-                        parent_config = 0
-                        for i, parent_idx in enumerate(child_parent_indices):
-                            if i < len(child_parent_indices) - 1:
-                                parent_config += parent_idx * np.prod([len(network.get_variable(p).values) for p in child_var.parents[i+1:]])
-                            else:
-                                parent_config += parent_idx
-                        
+                        parent_config = _get_parent_config_index(child_var, child_parent_indices, network)
                         counts[child_name][parent_config, child_val_in_row] += weight
         
         # M-Step: Update parameters
